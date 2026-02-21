@@ -111,6 +111,6 @@ constexpr struct {
         __VA_OPT__(FOR_EACH_AGAIN PARENS(macro, __VA_ARGS__))
 #define FOR_EACH_AGAIN() FOR_EACH_HELPER
 
-#define UNCHECKED_COLOR(name) callable_from<name> = unchecked
+#define UNCHECKED_COLOR(name) callable_from<name> = {std::meta::access_context::unchecked()}
 
 #define $with(...) ::_chroma_impl::eval_rhs->*[&](FOR_EACH(UNCHECKED_COLOR, __VA_ARGS__))
