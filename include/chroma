@@ -13,7 +13,7 @@ struct callable_from;
 namespace _chroma_impl {
 template <char const* V>
 struct error {
-  constexpr static auto cond    = !V;
+  constexpr static auto cond    = V == nullptr;
   constexpr static auto message = std::string_view(V);
   static_assert(cond, message);
 };
