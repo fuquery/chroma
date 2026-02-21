@@ -3,8 +3,8 @@
 #include "simple.hpp"
 
 int main(){
-    // CHECK: not a red function
+    // STATIC_ASSERT: not a red function
     b();
-
+    
     b(unchecked);
 }
