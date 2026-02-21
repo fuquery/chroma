@@ -36,12 +36,12 @@ diag_replacements = "sed " + " ".join(parts)
 compiler = lit_config.params.get("compiler")
 if compiler == "clang":
   config.available_features.add("clang")
-  config.substitutions.append(("%verify", f"not clang++ {clang_flags} %s 2>&1 | FileCheck <({diag_replacements} %s)"))
-  config.substitutions.append(("%compile", f"clang++ {clang_flags} %s 2>&1"))
+  config.substitutions.append(("%verify", f"not clang++ {clang_flags} -c %s 2>&1 | FileCheck <({diag_replacements} %s)"))
+  config.substitutions.append(("%compile", f"clang++ {clang_flags} -c %s 2>&1"))
 elif compiler == "gcc":
   config.available_features.add("gcc")
-  config.substitutions.append(("%verify", f"not g++ {gcc_flags} %s 2>&1 | FileCheck <({diag_replacements} %s)"))
-  config.substitutions.append(("%compile", f"g++ {gcc_flags} %s 2>&1"))
+  config.substitutions.append(("%verify", f"not g++ {gcc_flags} -c %s 2>&1 | FileCheck <({diag_replacements} %s)"))
+  config.substitutions.append(("%compile", f"g++ {gcc_flags} -c %s 2>&1"))
 else:
   print(f"Invalid compiler. Select a compiler with -Dcompiler={{gcc,clang}}")
   sys.exit(1)
