@@ -17,7 +17,7 @@ jobs:
       uses: actions/checkout@v5
     
     - name: Install dependencies
-      run: sudo dnf -y llvm-test python3-lit
+      run: sudo dnf install -y llvm-test python3-lit
 
     - name: Test with GCC
       run: lit . -Dcompiler=gcc
