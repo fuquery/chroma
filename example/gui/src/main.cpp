@@ -1,5 +1,6 @@
 #include <chroma>
 #include <ui.h>
+
 void display(callable_from<ui::context> = {}) {
     gl::ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     gl::Clear(GL_COLOR_BUFFER_BIT);

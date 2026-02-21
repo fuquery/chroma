@@ -3,25 +3,17 @@ project(chroma-examples LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(chroma REQUIRED)
 
 add_executable(chroma-gui src/main.cpp)
 target_link_libraries(chroma-gui PRIVATE chroma::chroma)
 
-# find_package(OpenGL REQUIRED)
-# target_link_libraries(chroma-gui PRIVATE OpenGL::GL)
-
 find_package(OpenGL REQUIRED)
 find_package(GLUT REQUIRED)
 target_link_libraries(chroma-gui PRIVATE OpenGL::GL GLUT::GLUT)
 
-
-target_link_libraries(chroma-gui PRIVATE
-    ${WAYLAND_CLIENT_LIB}
-    ${WAYLAND_EGL_LIB}
-    ${EGL_LIB}
-)
 target_include_directories(chroma-gui PRIVATE include)
 
 # WORKAROUND:
