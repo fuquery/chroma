@@ -1,0 +1,116 @@
+#pragma once
+
+#include <algorithm>
+#include <concepts>
+#include <meta>
+#include <ranges>
+#include <string_view>
+#include <vector>
+
+template <typename T>
+struct callable_from;
+
+namespace _chroma_impl {
+template <char const* V>
+struct error {
+  constexpr static auto cond    = !V;
+  constexpr static auto message = std::string_view(V);
+  static_assert(cond, message);
+};
+
+template <typename T>
+  requires std::convertible_to<T const&, std::string_view>
+consteval void panic(T const& message) {
+  auto msg           = std::string_view(message);
+  auto compile_error = substitute(^^error, {std::meta::reflect_constant_string(msg)});
+  (void)is_complete_type(compile_error);  // force instantiation
+}
+
+constexpr struct unchecked_context {
+  template <typename F>
+  static auto operator()(F&& f) {
+    return [&]<typename... Ts>[[=unchecked_context{}]](Ts&&... args)
+#ifndef __clang__
+               -> std::invoke_result_t<F, Ts...>
+#endif
+    { return std::forward<F>(f)(std::forward<Ts>(args)...); };
+  }
+} unchecked;
+
+#ifdef __clang__
+consteval std::vector<std::meta::info> annotations_of_with_type(std::meta::info r,
+                                                                std::meta::info t) {
+  return std::meta::annotations_of(r, t);
+}
+#else
+using std::meta::annotations_of_with_type;
+#endif
+
+}  // namespace _chroma_impl
+
+using _chroma_impl::unchecked;
+
+template <typename T>
+struct callable_from {
+  consteval explicit(false) callable_from(_chroma_impl::unchecked_context) {}
+
+  consteval explicit(false)
+      callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
+    bool is_unchecked =
+        ctx.scope() == std::meta::info() or
+        _chroma_impl::annotations_of_with_type(ctx.scope(), ^^_chroma_impl::unchecked_context).size() != 0;
+    auto is_valid = [](std::meta::info type) {
+      return has_template_arguments(type) and
+             (template_of(type) == template_of(^^callable_from)) and
+             std::ranges::any_of(template_arguments_of(type),
+                                 [](std::meta::info r) { return is_convertible_type(r, ^^T); });
+    };
+    bool constrains_callee =
+        is_function(ctx.scope()) and
+        std::ranges::any_of(parameters_of(ctx.scope()),
+                            [&](std::meta::info p) { return is_valid(remove_cvref(type_of(p))); });
+
+    if (not(is_unchecked or constrains_callee)) {
+      _chroma_impl::panic(T::error_message);
+    }
+  }
+
+  callable_from(callable_from const&)            = delete;
+  callable_from& operator=(callable_from const&) = delete;
+  callable_from(callable_from&&)                 = default;
+  callable_from& operator=(callable_from&&)      = default;
+  constexpr ~callable_from()                     = default;
+};
+
+namespace _chroma_impl {
+constexpr struct {
+  template <typename F>
+  decltype(auto) operator->*(F&& fnc) const {
+    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+      std::forward<F>(fnc)();
+    } else {
+      return std::forward<F>(fnc)();
+    }
+  }
+} eval_rhs;
+}  // namespace _chroma_impl
+#define $unchecked ::_chroma_impl::eval_rhs->*[&][[= unchecked]]
+
+#define PARENS ()
+
+#define EXPAND(...) EXPAND4(EXPAND4(EXPAND4(EXPAND4(__VA_ARGS__))))
+#define EXPAND4(...) EXPAND3(EXPAND3(EXPAND3(EXPAND3(__VA_ARGS__))))
+#define EXPAND3(...) EXPAND2(EXPAND2(EXPAND2(EXPAND2(__VA_ARGS__))))
+#define EXPAND2(...) EXPAND1(EXPAND1(EXPAND1(EXPAND1(__VA_ARGS__))))
+#define EXPAND1(...) __VA_ARGS__
+
+#define FOR_EACH(macro, ...) \
+    __VA_OPT__(EXPAND(FOR_EACH_HELPER(macro, __VA_ARGS__)))
+#define FOR_EACH_HELPER(macro, a1, ...) \
+    macro(a1) __VA_OPT__(, )            \
+        __VA_OPT__(FOR_EACH_AGAIN PARENS(macro, __VA_ARGS__))
+#define FOR_EACH_AGAIN() FOR_EACH_HELPER
+
+#define UNCHECKED_COLOR(name) callable_from<name> = unchecked
+
+#define $with(...) ::_chroma_impl::eval_rhs->*[&](FOR_EACH(UNCHECKED_COLOR, __VA_ARGS__))

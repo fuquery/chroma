@@ -1,0 +1,26 @@
+name: Run tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: ghcr.io/rsl-org/fedora_devcontainer:latest
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+    
+    - name: Install dependencies
+      run: sudo dnf -y llvm-test python3-lit
+
+    - name: Test with GCC
+      run: lit . -Dcompiler=gcc
+
+    - name: Test with Clang
+      run: lit . -Dcompiler=clang
