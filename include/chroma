@@ -29,7 +29,7 @@ consteval void panic(T const& message) {
 constexpr struct unchecked_context {
   template <typename F>
   static auto operator()(F&& f) {
-    return [&]<typename... Ts>[[=unchecked_context{}]](Ts&&... args)
+    return [&]<typename... Ts>[[= unchecked_context{}]](Ts&&... args)
 #ifndef __clang__
                -> std::invoke_result_t<F, Ts...>
 #endif
@@ -46,33 +46,66 @@ consteval std::vector<std::meta::info> annotations_of_with_type(std::meta::info 
 using std::meta::annotations_of_with_type;
 #endif
 
+template <typename... Ts>
+struct AssumedColors {};
+
+consteval bool is_viable(std::meta::info fnc, std::meta::info type) {
+    if (fnc == std::meta::info()) {
+        return true;
+    }
+
+    auto is_convertible = [&](std::meta::info r) { return is_convertible_type(r, type); };
+
+    for (auto annotation : annotations_of(fnc) | std::views::transform(std::meta::type_of)) {
+        if (annotation == ^^unchecked_context) {
+            return true;
+        }
+        if (is_specialization(annotation, ^^AssumedColors) and
+            std::ranges::any_of(template_arguments_of(annotation), is_convertible)) {
+            return true;
+        }
+    }
+
+    for (auto parameter : parameters_of(fnc) | std::views::transform(std::meta::type_of)) {
+        if (is_specialization(parameter, template_of(^^callable_from)) and
+            is_convertible(template_arguments_of(parameter)[0])) {
+            return true;
+        }
+    }
+    return false;
+}
 }  // namespace _chroma_impl
 
 using _chroma_impl::unchecked;
 
+template <typename... Ts>
+constexpr _chroma_impl::AssumedColors<Ts...> assume_color{};
+
+namespace chroma {
 template <typename T>
-struct callable_from {
+struct color {
+protected:
+  constexpr color() = default;
+  friend T;
+};
+}  // namespace chroma
+
+template <typename T>
+struct callable_from : chroma::color<T> {
+  consteval explicit(false) callable_from(chroma::color<T>) {}
   consteval explicit(false) callable_from(_chroma_impl::unchecked_context) {}
 
   consteval explicit(false)
       callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
-    bool is_unchecked =
-        ctx.scope() == std::meta::info() or
-        _chroma_impl::annotations_of_with_type(ctx.scope(), ^^_chroma_impl::unchecked_context).size() != 0;
-    auto is_valid = [](std::meta::info type) {
-      return has_template_arguments(type) and
-             (template_of(type) == template_of(^^callable_from)) and
-             std::ranges::any_of(template_arguments_of(type),
-                                 [](std::meta::info r) { return is_convertible_type(r, ^^T); });
-    };
-    bool constrains_callee =
-        is_function(ctx.scope()) and
-        std::ranges::any_of(parameters_of(ctx.scope()),
-                            [&](std::meta::info p) { return is_valid(remove_cvref(type_of(p))); });
-
-    if (not(is_unchecked or constrains_callee)) {
-      _chroma_impl::panic(T::error_message);
+    if (not _chroma_impl::is_viable(ctx.scope(), ^^T)) {
+      panic(T::error_message);
     }
+  }
+
+  template <typename U>
+    requires std::convertible_to<T, U>
+  operator callable_from<U>() const {
+    return unchecked;
   }
 
   callable_from(callable_from const&)            = delete;
@@ -80,6 +113,24 @@ struct callable_from {
   callable_from(callable_from&&)                 = default;
   callable_from& operator=(callable_from&&)      = default;
   constexpr ~callable_from()                     = default;
+};
+
+template <typename T>
+struct not_callable_from {
+  consteval explicit(false) not_callable_from(unchecked_context) {}
+
+  consteval explicit(false)
+      not_callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
+    if (_chroma_impl::is_viable(ctx.scope(), ^^T)) {
+      panic(T::error_message);
+    }
+  }
+
+  not_callable_from(not_callable_from const&)            = delete;
+  not_callable_from& operator=(not_callable_from const&) = delete;
+  not_callable_from(not_callable_from&&)                 = default;
+  not_callable_from& operator=(not_callable_from&&)      = default;
+  constexpr ~not_callable_from()                         = default;
 };
 
 namespace _chroma_impl {
@@ -94,23 +145,6 @@ constexpr struct {
   }
 } eval_rhs;
 }  // namespace _chroma_impl
+
 #define $unchecked ::_chroma_impl::eval_rhs->*[&][[= unchecked]]
-
-#define PARENS ()
-
-#define EXPAND(...) EXPAND4(EXPAND4(EXPAND4(EXPAND4(__VA_ARGS__))))
-#define EXPAND4(...) EXPAND3(EXPAND3(EXPAND3(EXPAND3(__VA_ARGS__))))
-#define EXPAND3(...) EXPAND2(EXPAND2(EXPAND2(EXPAND2(__VA_ARGS__))))
-#define EXPAND2(...) EXPAND1(EXPAND1(EXPAND1(EXPAND1(__VA_ARGS__))))
-#define EXPAND1(...) __VA_ARGS__
-
-#define FOR_EACH(macro, ...) \
-    __VA_OPT__(EXPAND(FOR_EACH_HELPER(macro, __VA_ARGS__)))
-#define FOR_EACH_HELPER(macro, a1, ...) \
-    macro(a1) __VA_OPT__(, )            \
-        __VA_OPT__(FOR_EACH_AGAIN PARENS(macro, __VA_ARGS__))
-#define FOR_EACH_AGAIN() FOR_EACH_HELPER
-
-#define UNCHECKED_COLOR(name) callable_from<name> = {std::meta::access_context::unchecked()}
-
-#define $with(...) ::_chroma_impl::eval_rhs->*[&](FOR_EACH(UNCHECKED_COLOR, __VA_ARGS__))
+#define $with(...) ::_chroma_impl::eval_rhs->*[&][[= assume_color<__VA_ARGS__>]]
