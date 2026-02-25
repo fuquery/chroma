@@ -7,10 +7,8 @@
 #include <string_view>
 #include <vector>
 
-template <typename T>
-struct callable_from;
-
-namespace _chroma_impl {
+namespace chroma {
+namespace _chroma_util {
 template <char const* V>
 struct error {
   constexpr static auto cond    = V == nullptr;
@@ -26,6 +24,26 @@ consteval void panic(T const& message) {
   (void)is_complete_type(compile_error);  // force instantiation
 }
 
+consteval bool is_specialization(std::meta::info type, std::meta::info templ) {
+  if (not is_type(type)) {
+    throw "not a type";
+  }
+  return has_template_arguments(type) &&
+         template_of(type) == (is_template(templ) ? templ : template_of(templ));
+}
+
+constexpr struct {
+  template <typename F>
+  decltype(auto) operator->*(F&& fnc) const {
+    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+      std::forward<F>(fnc)();
+    } else {
+      return std::forward<F>(fnc)();
+    }
+  }
+} eval_rhs;
+}  // namespace _chroma_util
+
 struct unchecked_context {
   template <typename F>
   static auto operator()(F&& f) {
@@ -36,23 +54,38 @@ struct unchecked_context {
     { return std::forward<F>(f)(std::forward<Ts>(args)...); };
   }
 };
+constexpr unchecked_context unchecked{};
 
 template <typename... Ts>
 struct assumed_colors {};
 
-consteval bool is_specialization(std::meta::info type, std::meta::info templ) {
-  if (not is_type(type)) {
-    throw "not a type";
-  }
-  return has_template_arguments(type) &&
-         template_of(type) == (is_template(templ) ? templ : template_of(templ));
-}
+template <typename... Ts>
+constexpr assumed_colors<Ts...> assume_color{};
 
-enum struct Viability { accepted, rejected, ignored };
+template <typename T>
+struct color {
+  color(color const&)            = delete;
+  color& operator=(color const&) = delete;
+  color(color&&)                 = default;
+  color& operator=(color&&)      = default;
+  ~color()                       = default;
 
-consteval Viability viability_of(std::meta::info fnc, std::meta::info type) {
-  using enum Viability;
-  if (fnc == std::meta::info()) {
+protected:
+  constexpr color() = default;
+  friend T;
+};
+
+template <typename T>
+struct callable_from;
+
+template <typename Color>
+concept ignorable = not requires { Color::ignorable; } || Color::ignorable;
+
+enum struct viability { accepted, rejected, ignored };
+
+consteval viability viability_of(std::meta::info fnc, std::meta::info type) {
+  using enum viability;
+  if (fnc == std::meta::info() and extract<bool>(substitute(^^chroma::ignorable, {type}))) {
     return ignored;
   }
 
@@ -62,58 +95,61 @@ consteval Viability viability_of(std::meta::info fnc, std::meta::info type) {
     if (annotation == ^^unchecked_context) {
       return ignored;
     }
-    if (is_specialization(annotation, ^^assumed_colors) and
+    if (_chroma_util::is_specialization(annotation, ^^assumed_colors) and
         std::ranges::any_of(template_arguments_of(annotation), is_convertible)) {
       return accepted;
     }
   }
 
   for (auto parameter : parameters_of(fnc) | std::views::transform(std::meta::type_of)) {
-    if (is_specialization(parameter, ^^callable_from) and
+    if (_chroma_util::is_specialization(parameter, ^^callable_from) and
         is_convertible(template_arguments_of(parameter)[0])) {
       return accepted;
     }
   }
   return rejected;
 }
-}  // namespace _chroma_impl
 
-constexpr _chroma_impl::unchecked_context unchecked{};
-
-template <typename... Ts>
-constexpr _chroma_impl::assumed_colors<Ts...> assume_color{};
-
-namespace chroma {
-template <typename T>
-struct color {
-  color(color const&)            = delete;
-  color& operator=(color const&) = delete;
-  color(color&&)                 = default;
-  color& operator=(color&&)      = default;
-
-protected:
-  constexpr color() = default;
-  friend T;
-};
-}  // namespace chroma
+consteval std::vector<std::meta::info> colors_of(std::meta::info fnc) {
+  std::vector<std::meta::info> result;
+  for (auto annotation : annotations_of(fnc) | std::views::transform(std::meta::type_of)) {
+    if (_chroma_util::is_specialization(annotation, ^^assumed_colors)) {
+      for (auto arg : template_arguments_of(annotation)) {
+        result.push_back(arg);
+      }
+    }
+  }
+  for (auto parameter : parameters_of(fnc) | std::views::transform(std::meta::type_of)) {
+    if (_chroma_util::is_specialization(parameter, ^^callable_from)) {
+      result.push_back(template_arguments_of(parameter)[0]);
+    }
+  }
+  return result;
+}
 
 template <typename T>
-struct callable_from : chroma::color<T> {
-  consteval explicit(false) callable_from(chroma::color<T>) {}
-  consteval explicit(false) callable_from(_chroma_impl::unchecked_context) {}
+struct callable_from : color<T> {
+  constexpr explicit(false) callable_from(color<T> const&) {}
+
+  constexpr explicit(false) callable_from(unchecked_context const&)
+    requires ignorable<T>
+  {}
+
+  constexpr explicit(false) callable_from(unchecked_context const&)
+    requires(not ignorable<T>)
+  = delete ("unchecked access to unignorable color");
 
   consteval explicit(false)
       callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
-    using enum _chroma_impl::Viability;
-    if (_chroma_impl::viability_of(ctx.scope(), ^^T) == rejected) {
-      _chroma_impl::panic(T::error_message);
+    if (viability_of(ctx.scope(), ^^T) == viability::rejected) {
+      _chroma_util::panic(T::error_message);
     }
   }
 
   template <typename U>
     requires std::convertible_to<T, U>
   operator callable_from<U>() const {
-    return unchecked;
+    return chroma::color<U>{};
   }
 
   callable_from(callable_from const&)            = delete;
@@ -125,13 +161,12 @@ struct callable_from : chroma::color<T> {
 
 template <typename T>
 struct not_callable_from {
-  consteval explicit(false) not_callable_from(_chroma_impl::unchecked_context) {}
+  constexpr explicit(false) not_callable_from(unchecked_context) {}
 
   consteval explicit(false)
       not_callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
-    using enum _chroma_impl::Viability;
-    if (_chroma_impl::viability_of(ctx.scope(), ^^T) == accepted) {
-      _chroma_impl::panic(T::error_message);
+    if (viability_of(ctx.scope(), ^^T) == viability::accepted) {
+      _chroma_util::panic(T::error_message);
     }
   }
 
@@ -141,19 +176,12 @@ struct not_callable_from {
   not_callable_from& operator=(not_callable_from&&)      = default;
   constexpr ~not_callable_from()                         = default;
 };
+}  // namespace chroma
 
-namespace _chroma_impl {
-constexpr struct {
-  template <typename F>
-  decltype(auto) operator->*(F&& fnc) const {
-    if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
-      std::forward<F>(fnc)();
-    } else {
-      return std::forward<F>(fnc)();
-    }
-  }
-} eval_rhs;
-}  // namespace _chroma_impl
+using chroma::assume_color;
+using chroma::callable_from;
+using chroma::not_callable_from;
+using chroma::unchecked;
 
-#define $unchecked ::_chroma_impl::eval_rhs->*[&][[= unchecked]]
-#define $with(...) ::_chroma_impl::eval_rhs->*[&][[= assume_color<__VA_ARGS__>]]
+#define $unchecked ::chroma::_chroma_util::eval_rhs->*[&][[= unchecked]]
+#define $with(...) ::chroma::_chroma_util::eval_rhs->*[&][[= assume_color<__VA_ARGS__>]]

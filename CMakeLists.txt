@@ -30,6 +30,11 @@ install(TARGETS chroma EXPORT chroma-targets)
 install(DIRECTORY include/ DESTINATION include)
 
 install(EXPORT chroma-targets
-    FILE chroma-targets.cmake
-    DESTINATION lib/cmake/chroma
-)
+        FILE chroma-targets.cmake
+        DESTINATION lib/cmake/chroma)
+
+option(BUILD_DUMMY "Build dummy" ON)
+if (BUILD_DUMMY)
+  add_executable(chroma-dummy dummy.cpp)
+  target_link_libraries(chroma-dummy PRIVATE chroma)
+endif()

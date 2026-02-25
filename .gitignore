@@ -42,3 +42,7 @@
 
 **/CMakeUserPresets.json
 **/build/
+**/metadata/
+
+**/.*cache/
+compile_commands.json
