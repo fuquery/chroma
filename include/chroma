@@ -5,6 +5,7 @@
 #include <meta>
 #include <ranges>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace chroma {
@@ -79,7 +80,9 @@ template <typename T>
 struct callable_from;
 
 template <typename Color>
-concept ignorable = not requires { Color::ignorable; } || Color::ignorable;
+concept ignorable =
+    (not requires { Color::ignorable; } and std::is_default_constructible_v<Color>) or
+    Color::ignorable;
 
 enum struct viability { accepted, rejected, ignored };
 

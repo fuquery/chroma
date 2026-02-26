@@ -15,3 +15,20 @@ void test() {
   auto a = A();
   fnc1(a.make_context());
 }
+
+struct B {
+  static constexpr auto error_message = "not in B";
+
+  B() = delete;
+  explicit B(int) {}
+  operator callable_from<B>() const {
+    return chroma::color<B>();
+  }
+};
+
+void fnc2(callable_from<B> = {}) {}
+
+void test2() {
+  auto b = B(123);
+  fnc2(b);
+}
