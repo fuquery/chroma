@@ -45,18 +45,6 @@ constexpr struct {
 } eval_rhs;
 }  // namespace _chroma_util
 
-struct unchecked_context {
-  template <typename F>
-  static auto operator()(F&& f) {
-    return [&]<typename... Ts>[[= unchecked_context{}]](Ts&&... args)
-#ifndef __clang__
-               -> std::invoke_result_t<F, Ts...>
-#endif
-    { return std::forward<F>(f)(std::forward<Ts>(args)...); };
-  }
-};
-constexpr unchecked_context unchecked{};
-
 template <typename... Ts>
 struct assumed_colors {};
 
@@ -95,9 +83,6 @@ consteval viability viability_of(std::meta::info fnc, std::meta::info type) {
   auto is_convertible = [&](std::meta::info r) { return is_convertible_type(r, type); };
 
   for (auto annotation : annotations_of(fnc) | std::views::transform(std::meta::type_of)) {
-    if (annotation == ^^unchecked_context) {
-      return ignored;
-    }
     if (_chroma_util::is_specialization(annotation, ^^assumed_colors) and
         std::ranges::any_of(template_arguments_of(annotation), is_convertible)) {
       return accepted;
@@ -134,14 +119,6 @@ template <typename T>
 struct callable_from : color<T> {
   constexpr explicit(false) callable_from(color<T> const&) {}
 
-  constexpr explicit(false) callable_from(unchecked_context const&)
-    requires ignorable<T>
-  {}
-
-  constexpr explicit(false) callable_from(unchecked_context const&)
-    requires(not ignorable<T>)
-  = delete ("unchecked access to unignorable color");
-
   consteval explicit(false)
       callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
     if (viability_of(ctx.scope(), ^^T) == viability::rejected) {
@@ -164,8 +141,6 @@ struct callable_from : color<T> {
 
 template <typename T>
 struct not_callable_from {
-  constexpr explicit(false) not_callable_from(unchecked_context) {}
-
   consteval explicit(false)
       not_callable_from(std::meta::access_context ctx = std::meta::access_context::current()) {
     if (viability_of(ctx.scope(), ^^T) == viability::accepted) {
@@ -184,7 +159,5 @@ struct not_callable_from {
 using chroma::assume_color;
 using chroma::callable_from;
 using chroma::not_callable_from;
-using chroma::unchecked;
 
-#define $unchecked ::chroma::_chroma_util::eval_rhs->*[&][[= unchecked]]
 #define $with(...) ::chroma::_chroma_util::eval_rhs->*[&][[= assume_color<__VA_ARGS__>]]
