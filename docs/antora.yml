@@ -1,0 +1,19 @@
+name: chroma
+version: ~
+title: chroma
+
+ext:
+  collector:
+    - worktree:
+        keep: until:exit
+      run:
+        - command: claudoc generate ../include modules/api --verbose
+          dir: .
+      scan:
+        dir: .
+        files: '**/*'
+        ignore: []
+nav:
+- modules/ROOT/nav.adoc
+- modules/api/nav.adoc
+
